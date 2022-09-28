@@ -372,3 +372,26 @@ def batch_rodrigues(rot_vecs, epsilon=1e-8, dtype=torch.float32):
     ident = torch.eye(3, dtype=dtype, device=device).unsqueeze(dim=0)
     rot_mat = ident + sin * K + (1 - cos) * torch.bmm(K, K)
     return rot_mat
+
+def batch_matrix_of_2vector(vec1, vec2, dtype=torch.float32):
+    '''
+    Calculate the rotation matrix which rotate vec1 to vec2
+    '''
+    batch_size = vec1.shape[0]
+    device = vec1.device
+
+    vec1_dir = vec1 / torch.norm(vec1 + 1e-8, dim=1, keepdim=True)
+    vec2_dir = vec2 / torch.norm(vec2 + 1e-8, dim=1, keepdim=True)
+    v = torch.cross(vec1_dir, vec2_dir).unsqueeze(dim=-1)
+    c = torch.einsum('bi,bi->b', vec1_dir, vec2_dir)
+    s = torch.norm(v, dim=1).squeeze()
+    
+    zeros = torch.zeros((batch_size, 1), dtype=dtype, device=device)
+    kmat = torch.cat([zeros, -v[:, 2], v[:, 1], v[:, 2], zeros, -v[:, 0], -v[:, 1], v[:, 0], zeros], dim=1)\
+        .view((batch_size, 3, 3))
+
+    rot_matrix = torch.eye(3, dtype=dtype, device=device).unsqueeze(dim=0).repeat((batch_size, 1, 1))
+    rot_matrix += kmat
+    scale = ((1-c) / (s*s))
+    rot_matrix += torch.einsum('bij,b->bij', kmat @ kmat, scale)
+    return rot_matrix

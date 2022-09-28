@@ -29,8 +29,8 @@ from .models.encoders import ResnetEncoder
 from .models.FLAME import FLAME, FLAMETex
 from .models.decoders import Generator
 from .utils import util
-from .utils.rotation_converter import batch_euler2axis
-from .utils.tensor_cropper import transform_points
+from .utils.rotation_converter import batch_euler2axis, batch_euler2matrix, batch_matrix2axis, batch_rodrigues, batch_matrix_of_2vector
+from .utils.tensor_cropper import transform_points, transform_points_3d, get_transform_cam
 from .datasets import datasets
 from .utils.config import cfg
 torch.backends.cudnn.benchmark = True
@@ -156,20 +156,38 @@ class DECA(nn.Module):
             codedict['euler_jaw_pose'] = euler_jaw_pose  
         return codedict
 
+    def oriental_rotate(self, codedict):
+        images = codedict['images']
+        batch_size = images.shape[0]
+        rot_mats = batch_rodrigues(codedict['pose'][:, :3], dtype=codedict['pose'].dtype).view([batch_size, 3, 3])
+        yz_rot_mat = torch.zeros([1, 3, 3], device=rot_mats.device, dtype=rot_mats.dtype)
+        yz_rot_mat[0, 0, 0] = 1
+        yz_rot_mat[0, 1, 1] = -1
+        yz_rot_mat[0, 2, 2] = -1
+        rot_mats = yz_rot_mat @ rot_mats
+        angle_axis = batch_matrix2axis(rot_mats)
+        codedict['pose'][:, :3] = angle_axis
+        return codedict
+
     # @torch.no_grad()
-    def decode(self, codedict, rendering=True, iddict=None, vis_lmk=True, return_vis=True, use_detail=True,
-                render_orig=False, original_image=None, tform=None):
+    def decode(self, codedict, focal=None, rendering=False, iddict=None, vis_lmk=False, return_vis=True, use_detail=False,
+                render_orig=False, original_image=None, tform=None, voca_dict=None):
         images = codedict['images']
         batch_size = images.shape[0]
         
         ## decode
-        verts, landmarks2d, landmarks3d = self.flame(shape_params=codedict['shape'], expression_params=codedict['exp'], pose_params=codedict['pose'])
+        if(voca_dict!=None):
+            verts, landmarks2d, landmarks3d = self.flame(shape_params=codedict['shape'], expression_params=voca_dict['exp'], pose_params=voca_dict['pose'])
+        else:
+            verts, landmarks2d, landmarks3d = self.flame(shape_params=codedict['shape'], expression_params=codedict['exp'], pose_params=codedict['pose'])
         if self.cfg.model.use_tex:
             albedo = self.flametex(codedict['tex'])
         else:
             albedo = torch.zeros([batch_size, 3, self.uv_size, self.uv_size], device=images.device) 
         landmarks3d_world = landmarks3d.clone()
 
+        landmarks2d2 = landmarks2d.clone()
+        landmarks3d2 = landmarks2d.clone()
         ## projection
         landmarks2d = util.batch_orth_proj(landmarks2d, codedict['cam'])[:,:,:2]; landmarks2d[:,:,1:] = -landmarks2d[:,:,1:]#; landmarks2d = landmarks2d*self.image_size/2 + self.image_size/2
         landmarks3d = util.batch_orth_proj(landmarks3d, codedict['cam']); landmarks3d[:,:,1:] = -landmarks3d[:,:,1:] #; landmarks3d = landmarks3d*self.image_size/2 + self.image_size/2
@@ -181,17 +199,36 @@ class DECA(nn.Module):
             'landmarks3d': landmarks3d,
             'landmarks3d_world': landmarks3d_world,
         }
+        # util.write_obj('hehe.obj', verts[0, ...].cpu().numpy(), self.flame.faces)
 
         ## rendering
         if return_vis and render_orig and original_image is not None and tform is not None:
             points_scale = [self.image_size, self.image_size]
             _, _, h, w = original_image.shape
-            # import ipdb; ipdb.set_trace()
-            trans_verts = transform_points(trans_verts, tform, points_scale, [h, w])
-            landmarks2d = transform_points(landmarks2d, tform, points_scale, [h, w])
-            landmarks3d = transform_points(landmarks3d, tform, points_scale, [h, w])
+
+            if(False):
+                cam = get_transform_cam(codedict['cam'], tform, points_scale, [h, w])
+                codedict['new_cam'] = cam
+                # cam[0, 1] = codedict['cam'][0, 1] * cam[0, 0] + cam[0, 1]
+                # cam[0, 2] = codedict['cam'][0, 2] * cam[0, 0] + cam[0, 2]
+                # cam[0, 0] = codedict['cam'][0, 0] * cam[0, 0]
+                landmarks2d2[:,:,1:] = -landmarks2d2[:,:,1:]
+                landmarks3d2[:,:,1:] = -landmarks3d2[:,:,1:]
+                landmarks2d = util.batch_orth_proj(landmarks2d2, cam)[:,:,:2]
+                landmarks3d = util.batch_orth_proj(landmarks3d2, cam)
+                verts[:,:,1:] = -verts[:,:,1:]
+                trans_verts = util.batch_orth_proj(verts, cam)
+            else:
+                # # import ipdb; ipdb.set_trace()
+                trans_verts = transform_points(trans_verts, tform, points_scale, [h, w])
+                # # trans_verts, transform_points_3d2 = transform_points_3d(trans_verts, tform, points_scale, [h, w])
+                # # opdict['trans_verts2'] = trans_verts
+                # # opdict['trans_verts3'] = transform_points_3d2
+                landmarks2d = transform_points(landmarks2d, tform, points_scale, [h, w])
+                landmarks3d = transform_points(landmarks3d, tform, points_scale, [h, w])
             background = original_image
             images = original_image
+            background = torch.zeros_like(original_image)
         else:
             h, w = self.image_size, self.image_size
             background = None
@@ -209,9 +246,14 @@ class DECA(nn.Module):
             opdict['albedo'] = albedo
             
         if use_detail:
-            uv_z = self.D_detail(torch.cat([codedict['pose'][:,3:], codedict['exp'], codedict['detail']], dim=1))
-            if iddict is not None:
-                uv_z = self.D_detail(torch.cat([iddict['pose'][:,3:], iddict['exp'], codedict['detail']], dim=1))
+            if(voca_dict!=None):
+                uv_z = self.D_detail(torch.cat([voca_dict['pose'][:,3:], voca_dict['exp'], codedict['detail']], dim=1))
+                if iddict is not None:
+                    uv_z = self.D_detail(torch.cat([iddict['pose'][:,3:], iddict['exp'], codedict['detail']], dim=1))
+            else:
+                uv_z = self.D_detail(torch.cat([codedict['pose'][:,3:], codedict['exp'], codedict['detail']], dim=1))
+                if iddict is not None:
+                    uv_z = self.D_detail(torch.cat([iddict['pose'][:,3:], iddict['exp'], codedict['detail']], dim=1))
             uv_detail_normals = self.displacement2normal(uv_z, verts, ops['normals'])
             uv_shading = self.render.add_SHlight(uv_detail_normals, codedict['light'])
             uv_texture = albedo*uv_shading
@@ -229,29 +271,26 @@ class DECA(nn.Module):
         if return_vis:
             ## render shape
             shape_images, _, grid, alpha_images = self.render.render_shape(verts, trans_verts, h=h, w=w, images=background, return_grid=True)
-            detail_normal_images = F.grid_sample(uv_detail_normals, grid, align_corners=False)*alpha_images
-            shape_detail_images = self.render.render_shape(verts, trans_verts, detail_normal_images=detail_normal_images, h=h, w=w, images=background)
+            # detail_normal_images = F.grid_sample(uv_detail_normals, grid, align_corners=False)*alpha_images
+            # shape_detail_images = self.render.render_shape(verts, trans_verts, detail_normal_images=detail_normal_images, h=h, w=w, images=background)
             
-            ## extract texture
-            ## TODO: current resolution 256x256, support higher resolution, and add visibility
-            uv_pverts = self.render.world2uv(trans_verts)
-            uv_gt = F.grid_sample(images, uv_pverts.permute(0,2,3,1)[:,:,:,:2], mode='bilinear', align_corners=False)
-            if self.cfg.model.use_tex:
-                ## TODO: poisson blending should give better-looking results
-                if self.cfg.model.extract_tex:
-                    uv_texture_gt = uv_gt[:,:3,:,:]*self.uv_face_eye_mask + (uv_texture[:,:3,:,:]*(1-self.uv_face_eye_mask))
-                else:
-                    uv_texture_gt = uv_texture[:,:3,:,:]
-            else:
-                uv_texture_gt = uv_gt[:,:3,:,:]*self.uv_face_eye_mask + (torch.ones_like(uv_gt[:,:3,:,:])*(1-self.uv_face_eye_mask)*0.7)
+            # ## extract texture
+            # ## TODO: current resolution 256x256, support higher resolution, and add visibility
+            # uv_pverts = self.render.world2uv(trans_verts)
+            # uv_gt = F.grid_sample(images, uv_pverts.permute(0,2,3,1)[:,:,:,:2], mode='bilinear', align_corners=False)
+            # if self.cfg.model.use_tex:
+            #     ## TODO: poisson blending should give better-looking results
+            #     uv_texture_gt = uv_gt[:,:3,:,:]*self.uv_face_eye_mask + (uv_texture[:,:3,:,:]*(1-self.uv_face_eye_mask))
+            # else:
+            #     uv_texture_gt = uv_gt[:,:3,:,:]*self.uv_face_eye_mask + (torch.ones_like(uv_gt[:,:3,:,:])*(1-self.uv_face_eye_mask)*0.7)
             
-            opdict['uv_texture_gt'] = uv_texture_gt
+            # opdict['uv_texture_gt'] = uv_texture_gt
             visdict = {
                 'inputs': images, 
                 'landmarks2d': util.tensor_vis_landmarks(images, landmarks2d),
                 'landmarks3d': util.tensor_vis_landmarks(images, landmarks3d),
                 'shape_images': shape_images,
-                'shape_detail_images': shape_detail_images
+                # 'shape_detail_images': shape_detail_images
             }
             if self.cfg.model.use_tex:
                 visdict['rendered_images'] = ops['images']

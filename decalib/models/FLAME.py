@@ -48,6 +48,7 @@ class FLAME(nn.Module):
             flame_model = Struct(**ss)
 
         self.dtype = torch.float32
+        self.faces = to_np(flame_model.f, dtype=np.int64)
         self.register_buffer('faces_tensor', to_tensor(to_np(flame_model.f, dtype=np.int64), dtype=torch.long))
         # The vertices of the template model
         self.register_buffer('v_template', to_tensor(to_np(flame_model.v_template), dtype=self.dtype))

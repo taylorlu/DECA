@@ -134,3 +134,100 @@ def transform_points(points, tform, points_scale=None, out_scale=None):
         trans_points_2d[:,:,1] = trans_points_2d[:,:,1]/out_scale[0]*2 - 1
     trans_points = torch.cat([trans_points_2d[:,:,:2], points[:,:,2:]], dim=-1)
     return trans_points
+
+
+def get_transform_cam(cam_input, tform, points_scale=None, out_scale=None):
+
+    D = torch.tensor([[[0.5,  0.0,   0.0,   0.0],
+                      [0.0,  0.5,   0.0,   0.0],
+                      [0.0,  0.0,   0.5,   0.0],
+                      [0.5,  0.5,   0.5,   1.0]]], 
+                      device=tform.device, dtype=tform.dtype)
+
+    C = torch.tensor([[[points_scale[0], 0.0,                0.0,               0.0],
+                      [0.0,             points_scale[1],    0.0,                0.0],
+                      [0.0,             0.0,             points_scale[1],       0.0],
+                      [0.0,             0.0,                0.0,                1.0]]], 
+                      device=tform.device, dtype=tform.dtype)
+
+    tform2 = torch.zeros([1, 4, 4], device=tform.device, dtype=tform.dtype)
+    tform2[0, 0, 0] = tform[0, 0, 0]
+    tform2[0, 1, 1] = tform[0, 0, 0]
+    tform2[0, 2, 2] = tform[0, 0, 0]
+    tform2[0, 3, 3] = 1.0
+    tform2[0, 3, 0] = tform[0, 2, 0]
+    tform2[0, 3, 1] = tform[0, 2, 1]
+
+    A = torch.tensor([[[2.0/out_scale[0], 0.0,               0.0,               0.0],
+                      [0.0,               2.0/out_scale[1],  0.0,               0.0],
+                      [0.0,               0.0,               2.0/out_scale[1],  0.0],
+                      [-1.0,              -1.0,             -1.0,               1.0]]], 
+                      device=tform.device, dtype=tform.dtype)
+
+    cam_input_matrix = torch.tensor([[[cam_input[0, 0],                         0.0,                          0.0,             0.0],
+                                    [0.0,                                   cam_input[0, 0],                  0.0,             0.0],
+                                    [0.0,                                       0.0,                        cam_input[0, 0],   0.0],
+                                    [cam_input[0, 1]*cam_input[0, 0],  -cam_input[0, 2]*cam_input[0, 0],      0.0,             1.0]]], 
+                                    device=tform.device, dtype=tform.dtype)
+
+    cam_matrix = cam_input_matrix @ D @ C @ tform2 @ A
+    cam = torch.zeros([1, 3], device=tform.device, dtype=tform.dtype)
+    cam[0, 0] = cam_matrix[0, 0, 0]
+    cam[0, 1] = cam_matrix[0, 3, 0]/cam[0, 0]
+    cam[0, 2] = cam_matrix[0, 3, 1]/cam[0, 0]
+    return cam
+
+# def get_transform_cam(cam_input, tform, points_scale=None, out_scale=None):
+#     s4 = cam_input[0, 0]; s3 = 2.0/out_scale[0]; s2 = tform[0, 0, 0]; s1 = points_scale[0]; s0 = 0.5
+#     x4 = cam_input[0, 1]; x3 = -1.0;             x2 = tform[0, 2, 0]; x1 = 0.0;             x0 = 0.5
+#     y4 = cam_input[0, 2]; y3 = -1.0;             y2 = tform[0, 2, 1]; y1 = 0.0;             y0 = 0.5
+
+#     cam = torch.zeros([1, 3], device=tform.device, dtype=tform.dtype)
+#     cam[0, 0] = s0 * s1 * s2 * s3 * s4
+#     cam[0, 1] = (s0 * (s1 * (s2 * (s3 * x4 + x3) + x2) + x1) + x0) / cam[0, 0]
+#     cam[0, 2] = (s0 * (s1 * (s2 * (s3 * y4 + y3) + y2) + y1) + y0) / cam[0, 0]
+#     return cam
+
+
+def transform_points_3d(points, tform, points_scale=None, out_scale=None):
+
+    #'input points must use original range'
+    if points_scale:
+        assert points_scale[0]==points_scale[1]
+        points = (points*0.5 + 0.5)*points_scale[0]
+    # import ipdb; ipdb.set_trace()
+
+    batch_size, n_points, _ = points.shape
+
+    tform_3d = torch.zeros([batch_size, 4, 4], dtype=tform.dtype, device=tform.device)
+    tform_3d[:, :2, :2] = tform[:, :2, :2]
+    tform_3d[:, 2, :] = torch.Tensor([0, 0, tform[0, 0, 0], 0])
+    tform_3d[:, 3, :] = torch.Tensor([tform[0, 2, 0], tform[0, 2, 1], 0, 1])
+
+    trans_points_3d = torch.bmm(
+                        torch.cat([points, torch.ones([batch_size, n_points, 1], device=points.device, dtype=points.dtype)], dim=-1), 
+                        tform_3d
+                        )
+    trans_points_3d2 = trans_points_3d.clone()
+    trans_points_3d = trans_points_3d[..., :-1]
+    
+    # Rx = torch.zeros([batch_size, 4, 4], dtype=tform.dtype, device=tform.device)
+    # Rx[:, 0, 0] = 1
+    # Rx[:, 1, 1] = -1
+    # Rx[:, 2, 2] = -1
+    # Rx[:, 3, 3] = 1
+    # trans_points_3d2 = torch.einsum('bij,bni->bni', Rx, trans_points_3d2)
+    # trans_points_3d2 = torch.einsum('bni,bij->bni', trans_points_3d2, Rx)
+
+    trans_points_3d2 = trans_points_3d2[..., :-1]
+
+    if out_scale: # h,w of output image size
+        trans_points_3d[:,:,0] = trans_points_3d[:,:,0]/out_scale[1]*2 - 1
+        trans_points_3d[:,:,1] = trans_points_3d[:,:,1]/out_scale[1]*2 - 1
+        trans_points_3d[:,:,2] = trans_points_3d[:,:,2]/out_scale[1]*2 - 1
+
+        # trans_points_3d[:,:,0] = trans_points_3d[:,:,0]/out_scale[1]*2 - 1
+        # trans_points_3d[:,:,1] = trans_points_3d[:,:,1]/out_scale[0]*2 - 1
+        # trans_points_3d[:,:,2] = trans_points_3d[:,:,2]/(out_scale[1]+out_scale[0])*4 - 1
+
+    return trans_points_3d, trans_points_3d2

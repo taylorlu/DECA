@@ -23,6 +23,7 @@ from scipy.ndimage import morphology
 from skimage.io import imsave
 import cv2
 import torchvision
+import pickle
 
 def upsample_mesh(vertices, normals, faces, displacement_map, texture_map, dense_template):
     ''' Credit to Timo
@@ -153,6 +154,21 @@ def write_obj(obj_name,
                     )
             cv2.imwrite(texture_name, texture)
 
+def load_pickle_file(pkl_path):
+    with open(pkl_path, 'rb') as f:
+        data = pickle.load(f, encoding='latin1')
+    return data
+
+def save_pkl(savepath, params, ind=0):
+    out_data = {}
+    for k, v in params.items():
+        if torch.is_tensor(v):
+            out_data[k] = v[ind].detach().cpu().numpy()
+        else:
+            out_data[k] = v
+    # import ipdb; ipdb.set_trace()
+    with open(savepath, 'wb') as f:
+        pickle.dump(out_data, f, protocol=2)
 
 ## load obj,  similar to load_obj from pytorch3d
 def load_obj(obj_filename):
