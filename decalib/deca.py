@@ -171,13 +171,13 @@ class DECA(nn.Module):
 
     # @torch.no_grad()
     def decode(self, codedict, focal=None, rendering=False, iddict=None, vis_lmk=False, return_vis=True, use_detail=False,
-                render_orig=False, original_image=None, tform=None, voca_dict=None):
+                render_orig=False, original_image=None, tform=None, custom_dict=None):
         images = codedict['images']
         batch_size = images.shape[0]
         
         ## decode
-        if(voca_dict!=None):
-            verts, landmarks2d, landmarks3d = self.flame(shape_params=codedict['shape'], expression_params=voca_dict['exp'], pose_params=voca_dict['pose'])
+        if(custom_dict!=None):
+            verts, landmarks2d, landmarks3d = self.flame(shape_params=codedict['shape'], expression_params=custom_dict['exp'], pose_params=custom_dict['pose'])
         else:
             verts, landmarks2d, landmarks3d = self.flame(shape_params=codedict['shape'], expression_params=codedict['exp'], pose_params=codedict['pose'])
         if self.cfg.model.use_tex:
@@ -246,8 +246,8 @@ class DECA(nn.Module):
             opdict['albedo'] = albedo
             
         if use_detail:
-            if(voca_dict!=None):
-                uv_z = self.D_detail(torch.cat([voca_dict['pose'][:,3:], voca_dict['exp'], codedict['detail']], dim=1))
+            if(custom_dict!=None):
+                uv_z = self.D_detail(torch.cat([custom_dict['pose'][:,3:], custom_dict['exp'], codedict['detail']], dim=1))
                 if iddict is not None:
                     uv_z = self.D_detail(torch.cat([iddict['pose'][:,3:], iddict['exp'], codedict['detail']], dim=1))
             else:

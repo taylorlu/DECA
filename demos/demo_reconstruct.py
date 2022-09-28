@@ -88,12 +88,12 @@ def main(args):
             if(args.loadCUSTOM_PKL):
                 custom_dict = {'pose': torch.concat([codedict['pose'][:, :3], torch.tensor(codedictcustoms[i][1][:, :]).to(device)], dim=-1),
                             'exp': torch.tensor(codedictcustoms[i][0][:, :50]).to(device)}
-            opdict, visdict = deca.decode(codedict, voca_dict=custom_dict) #tensor
+            opdict, visdict = deca.decode(codedict, custom_dict=custom_dict) #tensor
             if args.render_orig:
                 tform = testdata[idx]['tform'][None, ...]
                 tform = torch.inverse(tform).transpose(1,2).to(device)
                 original_image = testdata[idx]['original_image'][None, ...].to(device)
-                _, orig_visdict = deca.decode(codedict, render_orig=True, original_image=original_image, tform=tform, voca_dict=custom_dict)    
+                _, orig_visdict = deca.decode(codedict, render_orig=True, original_image=original_image, tform=tform, custom_dict=custom_dict)    
                 orig_visdict['inputs'] = original_image            
 
         if args.saveParam:
