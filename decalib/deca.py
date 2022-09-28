@@ -171,7 +171,7 @@ class DECA(nn.Module):
 
     # @torch.no_grad()
     def decode(self, codedict, focal=None, rendering=False, iddict=None, vis_lmk=False, return_vis=True, use_detail=False,
-                render_orig=False, original_image=None, tform=None, custom_dict=None):
+                render_orig=False, original_image=None, tform=None, custom_dict=None, remove_eyeball=False, vertex_except_eyeball=None, fl_keep_faces=None):
         images = codedict['images']
         batch_size = images.shape[0]
         
@@ -270,6 +270,12 @@ class DECA(nn.Module):
 
         if return_vis:
             ## render shape
+            if(remove_eyeball):
+                self.render.faces = torch.tensor(fl_keep_faces).unsqueeze(0).to(self.device)
+                self.render.face_colors = self.render.face_colors[:, :fl_keep_faces.shape[0], ...]
+                self.render.face_uvcoords = self.render.face_uvcoords[:, :fl_keep_faces.shape[0], ...]
+                verts = verts[:,vertex_except_eyeball, :]
+                trans_verts = trans_verts[:,vertex_except_eyeball, :]
             shape_images, _, grid, alpha_images = self.render.render_shape(verts, trans_verts, h=h, w=w, images=background, return_grid=True)
             # detail_normal_images = F.grid_sample(uv_detail_normals, grid, align_corners=False)*alpha_images
             # shape_detail_images = self.render.render_shape(verts, trans_verts, detail_normal_images=detail_normal_images, h=h, w=w, images=background)

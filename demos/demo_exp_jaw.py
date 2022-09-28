@@ -21,7 +21,6 @@ from scipy.io import savemat
 import argparse
 from tqdm import tqdm
 import torch
-import pickle
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from decalib.deca import DECA
@@ -29,35 +28,6 @@ from decalib.datasets import datasets
 from decalib.utils import util
 from decalib.utils.config import cfg as deca_cfg
 from decalib.utils.tensor_cropper import transform_points
-
-def split_from_maya(string):
-    arr = string.split('[')[1:]
-    neck_vertex_indices = []
-    for ele in arr:
-        ele = ele.split(']')[0]
-        if(':' in ele):
-            start = int(ele.split(':')[0])
-            end = int(ele.split(':')[1]) + 1
-            neck_vertex_indices += list(range(start, end))
-        else:
-            neck_vertex_indices += [int(ele)]
-    return neck_vertex_indices
-
-def keep_face_area(vertices, faces, face_area):
-    face_area.sort()
-    face_area = set(face_area)
-    vertices_map = [0] * vertices.shape[0]
-    acc = 0
-    for i in range(len(vertices)):
-        if(i in face_area):
-            vertices_map[i] = i - acc
-        else:
-            acc += 1
-    keep_face_indices = []
-    for face in faces:
-        if(face[0] in face_area and face[1] in face_area and face[2] in face_area):
-            keep_face_indices.append([vertices_map[face[0]], vertices_map[face[1]], vertices_map[face[2]]])
-    return keep_face_indices
 
 def main(args):
     # if args.rasterizer_type != 'standard':
@@ -90,18 +60,6 @@ def main(args):
     deca_cfg.rasterizer_type = args.rasterizer_type
     deca = DECA(config = deca_cfg, device=device)
 
-    vertex_except_eyeball = None
-    fl_keep_faces = None
-    if(args.removeEyeball):
-        string = "'voca_mesh:Mesh.vtx[2279:2281]', 'voca_mesh:Mesh.vtx[2284:2285]', 'voca_mesh:Mesh.vtx[2362:2363]', 'voca_mesh:Mesh.vtx[2366]', 'voca_mesh:Mesh.vtx[2368]', 'voca_mesh:Mesh.vtx[2392:2398]', 'voca_mesh:Mesh.vtx[2409:2410]', 'voca_mesh:Mesh.vtx[2413:2415]', 'voca_mesh:Mesh.vtx[2458:2459]', 'voca_mesh:Mesh.vtx[2463:2464]', 'voca_mesh:Mesh.vtx[2468:2469]', 'voca_mesh:Mesh.vtx[2479]', 'voca_mesh:Mesh.vtx[3616]', 'voca_mesh:Mesh.vtx[3702]', 'voca_mesh:Mesh.vtx[3930]', 'voca_mesh:Mesh.vtx[837:838]', 'voca_mesh:Mesh.vtx[840]', 'voca_mesh:Mesh.vtx[846:847]', 'voca_mesh:Mesh.vtx[1001:1002]', 'voca_mesh:Mesh.vtx[1007]', 'voca_mesh:Mesh.vtx[1010]', 'voca_mesh:Mesh.vtx[1063:1065]', 'voca_mesh:Mesh.vtx[1068]', 'voca_mesh:Mesh.vtx[1075]', 'voca_mesh:Mesh.vtx[1085:1086]', 'voca_mesh:Mesh.vtx[1116:1117]', 'voca_mesh:Mesh.vtx[1127:1129]', 'voca_mesh:Mesh.vtx[1228:1229]', 'voca_mesh:Mesh.vtx[1241:1242]', 'voca_mesh:Mesh.vtx[1284]', 'voca_mesh:Mesh.vtx[1287]', 'voca_mesh:Mesh.vtx[1321]', 'voca_mesh:Mesh.vtx[3824]', 'voca_mesh:Mesh.vtx[3862]', 'voca_mesh:Mesh.vtx[3929]'"
-        near_eyeball_vertices = split_from_maya(string)
-        flame_mask = pickle.load(open(deca_cfg.model.flame_mask_path, 'rb'), encoding='latin1')
-        eye_region_vertex = set(flame_mask['left_eyeball']).union(set(flame_mask['right_eyeball'])).union(set(near_eyeball_vertices))
-        vertex_except_eyeball = list(set(range(5023)).difference(eye_region_vertex))
-        fl_keep_faces = keep_face_area(np.arange(5023), deca.flame.faces, vertex_except_eyeball)
-        fl_keep_faces = np.array(fl_keep_faces)
-        vertex_except_eyeball = np.array(vertex_except_eyeball)
-
     if(args.loadCUSTOM_PKL):
         codedictcustoms = []
         jaw_exp_list = np.load(r'F:\TTSDataset\exp_jaw.npy')[0, ...]
@@ -113,9 +71,16 @@ def main(args):
             # a[0, :] *= 1.5
             codedictcustoms.append([b, a])
 
-    for i in tqdm(range(len(testdata))):
+    acc = 1
+    idx = -1
+    for i in tqdm(range(cano_len)):
+        idx += acc
+        if(idx>=len(testdata) or idx<0):
+            acc = -acc
+            idx += acc
+
         name = '{:04d}'.format(i)
-        images = testdata[i]['image'].to(device)[None,...]
+        images = testdata[idx]['image'].to(device)[None,...]
         with torch.no_grad():
             codedict = deca.encode(images)
             custom_dict = None
@@ -124,11 +89,10 @@ def main(args):
                             'exp': torch.tensor(codedictcustoms[i][0][:, :50]).to(device)}
             opdict, visdict = deca.decode(codedict, custom_dict=custom_dict) #tensor
             if args.render_orig:
-                tform = testdata[i]['tform'][None, ...]
+                tform = testdata[idx]['tform'][None, ...]
                 tform = torch.inverse(tform).transpose(1,2).to(device)
-                original_image = testdata[i]['original_image'][None, ...].to(device)
-                _, orig_visdict = deca.decode(codedict, render_orig=True, original_image=original_image, tform=tform, custom_dict=custom_dict, 
-                                              remove_eyeball=args.removeEyeball, vertex_except_eyeball=vertex_except_eyeball, fl_keep_faces=fl_keep_faces)    
+                original_image = testdata[idx]['original_image'][None, ...].to(device)
+                _, orig_visdict = deca.decode(codedict, render_orig=True, original_image=original_image, tform=tform, custom_dict=custom_dict)    
                 orig_visdict['inputs'] = original_image            
 
         if args.saveParam:
@@ -233,8 +197,6 @@ if __name__ == '__main__':
                         help='whether to save visualization output as seperate images' )
     parser.add_argument('--saveParam', default=False, type=lambda x: x.lower() in ['true', '1'],
                         help='whether to save parameters as pkl file' )
-    parser.add_argument('--removeEyeball', default=False, type=lambda x: x.lower() in ['true', '1'],
-                        help='whether to remove eyeball when render' )
-    parser.add_argument('--loadCUSTOM_PKL', default=False, type=lambda x: x.lower() in ['true', '1'],
-                        help='whether load custom exp_jaw' )
+    parser.add_argument('--loadCUSTOM_PKL', default=True, type=lambda x: x.lower() in ['true', '1'],
+                        help='whether to save parameters as pkl file' )
     main(parser.parse_args())
