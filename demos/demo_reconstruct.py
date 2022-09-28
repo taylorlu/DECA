@@ -71,17 +71,9 @@ def main(args):
             # a[0, :] *= 1.5
             codedictcustoms.append([b, a])
 
-    acc = 1
-    idx = -1
-    # for i in range(len(testdata)):
-    for i in tqdm(range(cano_len)):
-        idx += acc
-        if(idx>=len(testdata) or idx<0):
-            acc = -acc
-            idx += acc
-
+    for i in tqdm(range(len(testdata))):
         name = '{:04d}'.format(i)
-        images = testdata[idx]['image'].to(device)[None,...]
+        images = testdata[i]['image'].to(device)[None,...]
         with torch.no_grad():
             codedict = deca.encode(images)
             custom_dict = None
@@ -90,9 +82,9 @@ def main(args):
                             'exp': torch.tensor(codedictcustoms[i][0][:, :50]).to(device)}
             opdict, visdict = deca.decode(codedict, custom_dict=custom_dict) #tensor
             if args.render_orig:
-                tform = testdata[idx]['tform'][None, ...]
+                tform = testdata[i]['tform'][None, ...]
                 tform = torch.inverse(tform).transpose(1,2).to(device)
-                original_image = testdata[idx]['original_image'][None, ...].to(device)
+                original_image = testdata[i]['original_image'][None, ...].to(device)
                 _, orig_visdict = deca.decode(codedict, render_orig=True, original_image=original_image, tform=tform, custom_dict=custom_dict)    
                 orig_visdict['inputs'] = original_image            
 
@@ -159,7 +151,7 @@ def main(args):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='DECA: Detailed Expression Capture and Animation')
 
-    parser.add_argument('-i', '--inputpath', default=r'F:\pixrefer\2009_crop', type=str,
+    parser.add_argument('-i', '--inputpath', default=r'F:\pixrefer-tf2\2009_crop', type=str,
                         help='path to the test data, can be image folder, image path, image list, video')
     parser.add_argument('-s', '--savefolder', default='TestVideo/results', type=str,
                         help='path to the output directory, where results(obj, txt files) will be stored.')
@@ -198,6 +190,6 @@ if __name__ == '__main__':
                         help='whether to save visualization output as seperate images' )
     parser.add_argument('--saveParam', default=False, type=lambda x: x.lower() in ['true', '1'],
                         help='whether to save parameters as pkl file' )
-    parser.add_argument('--loadCUSTOM_PKL', default=True, type=lambda x: x.lower() in ['true', '1'],
+    parser.add_argument('--loadCUSTOM_PKL', default=False, type=lambda x: x.lower() in ['true', '1'],
                         help='whether to save parameters as pkl file' )
     main(parser.parse_args())
