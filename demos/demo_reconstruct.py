@@ -22,6 +22,7 @@ import argparse
 from tqdm import tqdm
 import torch
 import pickle
+import random
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from decalib.deca import DECA
@@ -104,7 +105,8 @@ def main(args):
 
     if(args.loadCUSTOM_PKL):
         codedictcustoms = []
-        jaw_exp_list = np.load(r'F:\TTSDataset\exp_jaw.npy')[0, ...]
+        # jaw_exp_list = np.load(r'F:\TTSDataset\exp_jaw.npy')[0, ...]
+        jaw_exp_list = np.load(r'/mnt/workplace/FaceFormer/output/exp_jaw.npy')[0, ...]
         cano_len = jaw_exp_list.shape[0]
         for i in range(cano_len):
             a = jaw_exp_list[i:i+1, 50:]
@@ -113,20 +115,49 @@ def main(args):
             # a[0, :] *= 1.5
             codedictcustoms.append([b, a])
 
-    for i in tqdm(range(len(testdata))):
+    blink_coeff = torch.tensor(np.array([ 0.1237,  0.3986,  0.1954,  0.4408, -0.5949, -1.0346,  0.5870, -1.4986,
+         2.5118,  1.6563, -0.7887,  1.2971,  1.3368,  0.2926,  2.5543, -0.3052,
+        -2.5140, -0.1137,  1.0665,  2.4840,  0.6413, -2.6480,  2.7470,  0.5609,
+        -1.8226,  1.7931, -0.8398,  0.3199, -0.8713,  0.2080, -0.7218, -0.0051,
+         0.9509, -0.8668,  1.6583,  0.4251,  0.3105, -0.5553,  0.0682,  0.0976,
+         0.4672, -0.3140,  1.2987,  0.5105, -0.4981,  0.6391, -0.8752,  0.4839,
+         0.0454,  0.3147]).astype(np.float32)).to(device)
+    
+    blink_index = random.randint(4*30, 6*30)
+    blink_weights = np.zeros(cano_len)
+    while(blink_index<cano_len):
+        blink_weights[blink_index:blink_index+6] = np.array([0.1, 0.4, 0.7, 0.6, 0.4, 0.1])
+        blink_index += random.randint(4*30, 6*30)
+        
+    if(args.loadCUSTOM_PKL):
+        length = cano_len
+        trunk = cano_len//(len(testdata)-1) + 1
+        fwd = np.arange(len(testdata)-1)
+        bck = np.arange(len(testdata)-1, 0, -1)
+        idx = np.array([]).astype(int)
+        for t in range(trunk):
+            if(t%2==0):
+                idx = np.concatenate([idx, fwd])
+            else:
+                idx = np.concatenate([idx, bck])
+    else:
+        length = len(testdata)
+        idx = np.arange(length)
+
+    for i in tqdm(range(length)):
         name = '{:04d}'.format(i)
-        images = testdata[i]['image'].to(device)[None,...]
+        images = testdata[idx[i]]['image'].to(device)[None,...]
         with torch.no_grad():
             codedict = deca.encode(images)
             custom_dict = None
             if(args.loadCUSTOM_PKL):
                 custom_dict = {'pose': torch.concat([codedict['pose'][:, :3], torch.tensor(codedictcustoms[i][1][:, :]).to(device)], dim=-1),
-                            'exp': torch.tensor(codedictcustoms[i][0][:, :50]).to(device)}
+                            'exp': torch.tensor(codedictcustoms[i][0][:, :50]).to(device) + blink_weights[i]*blink_coeff}
             opdict, visdict = deca.decode(codedict, custom_dict=custom_dict) #tensor
             if args.render_orig:
-                tform = testdata[i]['tform'][None, ...]
+                tform = testdata[idx[i]]['tform'][None, ...]
                 tform = torch.inverse(tform).transpose(1,2).to(device)
-                original_image = testdata[i]['original_image'][None, ...].to(device)
+                original_image = testdata[idx[i]]['original_image'][None, ...].to(device)
                 _, orig_visdict = deca.decode(codedict, render_orig=True, original_image=original_image, tform=tform, custom_dict=custom_dict, 
                                               remove_eyeball=args.removeEyeball, vertex_except_eyeball=vertex_except_eyeball, fl_keep_faces=fl_keep_faces)    
                 orig_visdict['inputs'] = original_image            
@@ -194,7 +225,7 @@ def main(args):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='DECA: Detailed Expression Capture and Animation')
 
-    parser.add_argument('-i', '--inputpath', default=r'F:\pixrefer-tf2\2009_crop', type=str,
+    parser.add_argument('-i', '--inputpath', default=r'/mnt/workplace/pixrefer-tf2.bak/2009_crop', type=str,
                         help='path to the test data, can be image folder, image path, image list, video')
     parser.add_argument('-s', '--savefolder', default='TestVideo/results', type=str,
                         help='path to the output directory, where results(obj, txt files) will be stored.')
@@ -233,8 +264,8 @@ if __name__ == '__main__':
                         help='whether to save visualization output as seperate images' )
     parser.add_argument('--saveParam', default=False, type=lambda x: x.lower() in ['true', '1'],
                         help='whether to save parameters as pkl file' )
-    parser.add_argument('--removeEyeball', default=False, type=lambda x: x.lower() in ['true', '1'],
+    parser.add_argument('--removeEyeball', default=True, type=lambda x: x.lower() in ['true', '1'],
                         help='whether to remove eyeball when render' )
-    parser.add_argument('--loadCUSTOM_PKL', default=False, type=lambda x: x.lower() in ['true', '1'],
+    parser.add_argument('--loadCUSTOM_PKL', default=True, type=lambda x: x.lower() in ['true', '1'],
                         help='whether load custom exp_jaw' )
     main(parser.parse_args())
