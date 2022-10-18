@@ -125,10 +125,13 @@ def main(args):
     
     blink_index = random.randint(4*30, 6*30)
     blink_weights = np.zeros(cano_len)
-    while(blink_index<cano_len):
+    while(blink_index<cano_len-6):
         blink_weights[blink_index:blink_index+6] = np.array([0.1, 0.4, 0.7, 0.6, 0.4, 0.1])
-        blink_index += random.randint(4*30, 6*30)
-        
+        blink_index += random.randint(5*30, 8*30)
+        if(blink_index<cano_len-6):
+            blink_weights[blink_index:blink_index+6] = np.array([0.1, 0.4, 0.7, 0.6, 0.4, 0.1])
+            blink_index += random.randint(1*30, 3*30)
+
     if(args.loadCUSTOM_PKL):
         length = cano_len
         trunk = cano_len//(len(testdata)-1) + 1
@@ -264,7 +267,7 @@ if __name__ == '__main__':
                         help='whether to save visualization output as seperate images' )
     parser.add_argument('--saveParam', default=False, type=lambda x: x.lower() in ['true', '1'],
                         help='whether to save parameters as pkl file' )
-    parser.add_argument('--removeEyeball', default=True, type=lambda x: x.lower() in ['true', '1'],
+    parser.add_argument('--removeEyeball', default=False, type=lambda x: x.lower() in ['true', '1'],
                         help='whether to remove eyeball when render' )
     parser.add_argument('--loadCUSTOM_PKL', default=True, type=lambda x: x.lower() in ['true', '1'],
                         help='whether load custom exp_jaw' )
