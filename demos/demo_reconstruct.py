@@ -115,24 +115,23 @@ def main(args):
             # a[0, :] *= 1.5
             codedictcustoms.append([b, a])
 
-    blink_coeff = torch.tensor(np.array([ 0.1237,  0.3986,  0.1954,  0.4408, -0.5949, -1.0346,  0.5870, -1.4986,
-         2.5118,  1.6563, -0.7887,  1.2971,  1.3368,  0.2926,  2.5543, -0.3052,
-        -2.5140, -0.1137,  1.0665,  2.4840,  0.6413, -2.6480,  2.7470,  0.5609,
-        -1.8226,  1.7931, -0.8398,  0.3199, -0.8713,  0.2080, -0.7218, -0.0051,
-         0.9509, -0.8668,  1.6583,  0.4251,  0.3105, -0.5553,  0.0682,  0.0976,
-         0.4672, -0.3140,  1.2987,  0.5105, -0.4981,  0.6391, -0.8752,  0.4839,
-         0.0454,  0.3147]).astype(np.float32)).to(device)
-    
-    blink_index = random.randint(4*30, 6*30)
-    blink_weights = np.zeros(cano_len)
-    while(blink_index<cano_len-6):
-        blink_weights[blink_index:blink_index+6] = np.array([0.1, 0.4, 0.7, 0.6, 0.4, 0.1])
-        blink_index += random.randint(5*30, 8*30)
-        if(blink_index<cano_len-6):
+        blink_coeff = torch.tensor(np.array([ 0.1237,  0.3986,  0.1954,  0.4408, -0.5949, -1.0346,  0.5870, -1.4986,
+            2.5118,  1.6563, -0.7887,  1.2971,  1.3368,  0.2926,  2.5543, -0.3052,
+            -2.5140, -0.1137,  1.0665,  2.4840,  0.6413, -2.6480,  2.7470,  0.5609,
+            -1.8226,  1.7931, -0.8398,  0.3199, -0.8713,  0.2080, -0.7218, -0.0051,
+            0.9509, -0.8668,  1.6583,  0.4251,  0.3105, -0.5553,  0.0682,  0.0976,
+            0.4672, -0.3140,  1.2987,  0.5105, -0.4981,  0.6391, -0.8752,  0.4839,
+            0.0454,  0.3147]).astype(np.float32)).to(device)
+        
+        blink_index = random.randint(4*30, 6*30)
+        blink_weights = np.zeros(cano_len)
+        while(blink_index<cano_len-6):
             blink_weights[blink_index:blink_index+6] = np.array([0.1, 0.4, 0.7, 0.6, 0.4, 0.1])
-            blink_index += random.randint(1*30, 3*30)
+            blink_index += random.randint(5*30, 8*30)
+            if(blink_index<cano_len-6):
+                blink_weights[blink_index:blink_index+6] = np.array([0.1, 0.4, 0.7, 0.6, 0.4, 0.1])
+                blink_index += random.randint(1*30, 3*30)
 
-    if(args.loadCUSTOM_PKL):
         length = cano_len
         trunk = cano_len//(len(testdata)-1) + 1
         fwd = np.arange(len(testdata)-1)
@@ -228,7 +227,7 @@ def main(args):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='DECA: Detailed Expression Capture and Animation')
 
-    parser.add_argument('-i', '--inputpath', default=r'/mnt/workplace/pixrefer-tf2.bak/2009_crop', type=str,
+    parser.add_argument('-i', '--inputpath', default=r'/mnt/workplace/pixrefer-tf2/2020_crop', type=str,
                         help='path to the test data, can be image folder, image path, image list, video')
     parser.add_argument('-s', '--savefolder', default='TestVideo/results', type=str,
                         help='path to the output directory, where results(obj, txt files) will be stored.')
@@ -269,6 +268,6 @@ if __name__ == '__main__':
                         help='whether to save parameters as pkl file' )
     parser.add_argument('--removeEyeball', default=False, type=lambda x: x.lower() in ['true', '1'],
                         help='whether to remove eyeball when render' )
-    parser.add_argument('--loadCUSTOM_PKL', default=True, type=lambda x: x.lower() in ['true', '1'],
+    parser.add_argument('--loadCUSTOM_PKL', default=False, type=lambda x: x.lower() in ['true', '1'],
                         help='whether load custom exp_jaw' )
     main(parser.parse_args())
