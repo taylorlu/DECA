@@ -146,11 +146,18 @@ def main(args):
         length = len(testdata)
         idx = np.arange(length)
 
+    g_tform = None
+    g_cam = None
     for i in tqdm(range(length)):
         name = '{:04d}'.format(i)
         images = testdata[idx[i]]['image'].to(device)[None,...]
         with torch.no_grad():
             codedict = deca.encode(images)
+            if(g_cam is None):
+                g_cam = codedict['cam']
+            else:
+                g_cam = g_cam*0.9 + codedict['cam']*0.1
+            codedict['cam'] = g_cam
             custom_dict = None
             if(args.loadCUSTOM_PKL):
                 custom_dict = {'pose': torch.concat([codedict['pose'][:, :3], torch.tensor(codedictcustoms[i][1][:, :]).to(device)], dim=-1),
@@ -159,6 +166,11 @@ def main(args):
             if args.render_orig:
                 tform = testdata[idx[i]]['tform'][None, ...]
                 tform = torch.inverse(tform).transpose(1,2).to(device)
+                if(g_tform is None):
+                    g_tform = tform
+                else:
+                    g_tform = g_tform*0.9 + tform*0.1
+                tform = g_tform
                 original_image = testdata[idx[i]]['original_image'][None, ...].to(device)
                 _, orig_visdict = deca.decode(codedict, render_orig=True, original_image=original_image, tform=tform, custom_dict=custom_dict, 
                                               remove_eyeball=args.removeEyeball, vertex_except_eyeball=vertex_except_eyeball, fl_keep_faces=fl_keep_faces)    
@@ -209,8 +221,13 @@ def main(args):
                 # image = util.tensor2image(visdict[vis_name][0])
                 # cv2.imwrite(os.path.join(savefolder, name, name + '_' + vis_name +'.jpg'), util.tensor2image(visdict[vis_name][0]))
                 if args.render_orig:
-                    # image = util.tensor2image(orig_visdict[vis_name][0])
-                    cv2.imwrite(os.path.join(savefolder, name, 'orig_' + name + '_' + vis_name +'.jpg'), util.tensor2image(orig_visdict[vis_name][0]))
+                    image = util.tensor2image(orig_visdict[vis_name][0])
+                    if(args.loadCUSTOM_PKL):
+                        original_image = (original_image[0].transpose(0, 2).transpose(0, 1).cpu().numpy()*255).astype(np.uint8)
+                        image[-20:, :, :] = original_image[-20:, :, :]
+                        image[:, -20:, :] = original_image[:, -20:, :]
+                        image[:, :20, :] = original_image[:, :20, :]
+                    cv2.imwrite(os.path.join(savefolder, name, 'orig_' + name + '_' + vis_name +'.jpg'), image)
 
         if(args.loadCUSTOM_PKL):
             if(cano_len==i+1):
